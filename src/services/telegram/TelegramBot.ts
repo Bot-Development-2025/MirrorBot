@@ -1,12 +1,22 @@
-import { Telegraf, Context } from "telegraf";
+import { Telegraf, Context, session } from "telegraf";
 import { WalletManager } from "../wallet/WalletManager";
 import { TokenMonitor } from "../trading/TokenMonitor";
 import { TradingModel } from "../../models/Trading";
 import { Logger } from "../../utils/logger";
 import { shortenAddress } from "../../utils/helpers";
 
+interface ISessionData {
+  step: string;
+  walletAddress?: string;
+  tokenAddress?: string;
+}
+
+interface MyContext extends Context {
+  session: ISessionData;
+}
+
 export class TelegramBot {
-  private bot: Telegraf;
+  private bot: Telegraf<MyContext>;
   private walletManager: WalletManager;
   private tokenMonitors: Map<string, TokenMonitor> = new Map();
   private currentContext: Map<
@@ -15,7 +25,16 @@ export class TelegramBot {
   > = new Map();
 
   constructor(private readonly botToken: string) {
-    this.bot = new Telegraf(botToken);
+    this.bot = new Telegraf<MyContext>(botToken);
+    this.bot.use(
+      session({
+        defaultSession: (): ISessionData => ({
+          step: "idle",
+          walletAddress: undefined,
+          tokenAddress: undefined,
+        }),
+      })
+    );
     this.walletManager = new WalletManager();
     this.setupCommands();
   }
@@ -43,10 +62,34 @@ export class TelegramBot {
       );
     });
     this.bot.on("text", async (msgCtx) => {
+      if (msgCtx.session.step === "change_percentage") {
+        const newPercentage = parseFloat(msgCtx.message.text);
+        if (isNaN(newPercentage) || newPercentage < 0 || newPercentage > 100) {
+          await msgCtx.reply(
+            "Invalid percentage. Please enter a number between 0 and 100."
+          );
+          return;
+        }
+
+        const { walletAddress, tokenAddress } = msgCtx.session;
+        // Update the percentage in the database
+        await TradingModel.updateOne(
+          { walletAddress, tokenAddress },
+          { percentage: newPercentage }
+        );
+        await msgCtx.reply(
+          `✅ Trading percentage updated to ${newPercentage}% for token ${tokenAddress}`
+        );
+
+        return;
+      }
+
       const userId = msgCtx.from.id.toString();
       const context = this.currentContext.get(userId);
 
       if (!context) return; // No active context
+
+      console.log(msgCtx.session.step);
 
       if (context.step === 1) {
         // Handle token address input
@@ -109,7 +152,7 @@ export class TelegramBot {
             if (wallet.chain === "SOLANA") {
               tokenOut = "So11111111111111111111111111111111111111112";
             } else if (wallet.chain === "EVM") {
-              tokenOut = "0x4200000000000000000000000000000000000006";
+              tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
             } else {
               throw new Error("Unsupported wallet type");
             }
@@ -140,18 +183,16 @@ export class TelegramBot {
     });
 
     this.bot.action("manage_trading", this.handleManageTrading.bind(this));
-    this.bot.action(/manage_trading_(.+)_(.+)/, async (ctx) => {
-      const [walletAddress, tokenAddress] = ctx.match[1].split("_");
-      const trading = await TradingModel.findOne({
-        walletAddress,
-        tokenAddress,
-      });
+    this.bot.action(/manage_trading_(.+)/, async (ctx) => {
+      const tradingId = ctx.match[1];
+      const trading = await TradingModel.findById(tradingId);
 
       if (!trading) {
         await ctx.reply("Trading strategy not found.");
         return;
       }
 
+      const { walletAddress, tokenAddress } = trading;
       await ctx.reply(
         `Managing trading for:\nWallet: ${walletAddress}\nToken: ${tokenAddress}\nPercentage: ${trading.percentage}%\n\nChoose an action:`,
         {
@@ -160,11 +201,11 @@ export class TelegramBot {
               [
                 {
                   text: "Stop Trading",
-                  callback_data: `stop_trading_${walletAddress}_${tokenAddress}`,
+                  callback_data: `stop_trading_${tradingId}`,
                 },
                 {
                   text: "Change Percentage",
-                  callback_data: `change_percentage_${walletAddress}_${tokenAddress}`,
+                  callback_data: `change_percentage_${tradingId}`,
                 },
               ],
               [
@@ -178,8 +219,16 @@ export class TelegramBot {
         }
       );
     });
-    this.bot.action(/stop_trading_(.+)_(.+)/, async (ctx) => {
-      const [walletAddress, tokenAddress] = ctx.match[1].split("_");
+    this.bot.action(/stop_trading_(.+)/, async (ctx) => {
+      const tradingId = ctx.match[1];
+      const trading = await TradingModel.findById(tradingId);
+
+      if (!trading) {
+        await ctx.reply("Trading strategy not found.");
+        return;
+      }
+
+      const { tokenAddress, walletAddress } = trading;
       const monitor = this.tokenMonitors.get(tokenAddress);
 
       if (monitor) {
@@ -191,29 +240,20 @@ export class TelegramBot {
         await ctx.reply("No active trading found for this token.");
       }
     });
-    this.bot.action(/change_percentage_(.+)_(.+)/, async (ctx) => {
-      const [walletAddress, tokenAddress] = ctx.match[1].split("_");
+    this.bot.action(/change_percentage_(.+)/, async (ctx) => {
+      const tradingId = ctx.match[1];
+      const trading = await TradingModel.findById(tradingId);
+
+      if (!trading) {
+        await ctx.reply("Trading strategy not found.");
+        return;
+      }
+
+      const { tokenAddress, walletAddress } = trading;
+      ctx.session.step = "change_percentage";
+      ctx.session.walletAddress = walletAddress;
+      ctx.session.tokenAddress = tokenAddress;
       await ctx.reply(`Please send the new percentage for ${tokenAddress}:`);
-
-      // Listen for the next message to get the new percentage
-      this.bot.on("text", async (msgCtx) => {
-        const newPercentage = parseFloat(msgCtx.message.text);
-        if (isNaN(newPercentage) || newPercentage < 0 || newPercentage > 100) {
-          await msgCtx.reply(
-            "Invalid percentage. Please enter a number between 0 and 100."
-          );
-          return;
-        }
-
-        // Update the percentage in the database
-        await TradingModel.updateOne(
-          { walletAddress, tokenAddress },
-          { percentage: newPercentage }
-        );
-        await ctx.reply(
-          `✅ Trading percentage updated to ${newPercentage}% for token ${tokenAddress}`
-        );
-      });
     });
 
     this.bot.action("list_wallets", this.handleListWallets.bind(this));
@@ -358,7 +398,7 @@ export class TelegramBot {
 
         return {
           text: `${statusIcon} ${shortenAddress(trading.walletAddress)} - ${shortenAddress(trading.tokenAddress)} (${trading.percentage}%)`,
-          callback_data: `manage_trading_${trading.walletAddress}`, // Unique callback data
+          callback_data: `manage_trading_${trading.id}`, // Unique callback data
         };
       });
 
@@ -458,7 +498,7 @@ export class TelegramBot {
                 if (wallet.chain === "SOLANA") {
                   tokenOut = "So11111111111111111111111111111111111111112";
                 } else if (wallet.chain === "EVM") {
-                  tokenOut = "0x4200000000000000000000000000000000000006";
+                  tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
                 } else {
                   throw new Error("Unsupported wallet type");
                 }

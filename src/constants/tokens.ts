@@ -10,7 +10,7 @@ export const tokens: TokenType = {
   WETH: {
     name: "Wrapped Ether",
     symbol: "WETH",
-    address: "0x4200000000000000000000000000000000000006",
+    address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
     decimals: 18,
   },
   AIX: {
