@@ -17,13 +17,13 @@ export class MeteoraProvider implements ISolanaDEXProvider {
     tokenIn,
     tokenOut,
     amount,
-    isBuy,
   }: SwapParams): Promise<string> {
+    const isBuy = false;
     const dlmmPool = await DLMM.create(
       this.connection,
       new PublicKey(this.POOL_ADDRESS)
     );
-    const swapAmount = new BN(amount * 10 ** (isBuy ? 9 : 6));
+    const swapAmount = new BN(Number(amount) * 10 ** (isBuy ? 9 : 6));
 
     const binArrays = await dlmmPool.getBinArrayForSwap(isBuy);
     const swapQuote = await dlmmPool.swapQuote(
