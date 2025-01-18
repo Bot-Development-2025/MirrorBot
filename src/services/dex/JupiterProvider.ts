@@ -18,7 +18,6 @@ export class JupiterProvider implements ISolanaDEXProvider {
     tokenIn,
     tokenOut,
     amount,
-    isBuy,
   }: SwapParams): Promise<string> {
     const quoteResponse = await (
       await fetch(

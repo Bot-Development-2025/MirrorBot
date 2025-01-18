@@ -3,7 +3,11 @@ export interface ITradeStrategy {
   percentage: number;
   walletAddress: string;
 
-  calculateTradeAmount(detectedAmount: number): number;
+  calculateTradeAmount(detectedAmount: bigint): bigint;
   shouldTrade(transaction: any): boolean;
-  executeTrade(amount: number, isBuy: boolean): Promise<boolean>;
+  executeTrade(
+    amount: bigint,
+    tokenIn: string,
+    tokenOut: string
+  ): Promise<boolean>;
 }

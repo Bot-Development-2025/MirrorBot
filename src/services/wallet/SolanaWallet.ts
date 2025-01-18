@@ -76,7 +76,7 @@ export class SolanaWallet implements IWallet {
     return true;
   }
 
-  async getBalance(): Promise<number> {
+  async getBalance(): Promise<bigint> {
     try {
       if (this.tokenAddress) {
         // Get SPL token balance
@@ -92,27 +92,27 @@ export class SolanaWallet implements IWallet {
           this.balance = balance;
           return balance;
         }
-        return 0;
+        return 0n;
       } else {
         // Get SOL balance
         const balance = await this.connection.getBalance(
           this.keypair.publicKey
         );
         this.balance = balance / LAMPORTS_PER_SOL;
-        return this.balance;
+        return BigInt(this.balance);
       }
     } catch (error) {
       Logger.error(`Failed to get balance: ${error}`);
-      return 0;
+      return 0n;
     }
   }
 
-  async deposit(amount: number, fromAddress: string): Promise<boolean> {
+  async deposit(amount: bigint, fromAddress: string): Promise<boolean> {
     // For SolanaWallet, deposit is passive - just return true as deposits don't need wallet action
     return true;
   }
 
-  async withdraw(amount: number, toAddress: string): Promise<boolean> {
+  async withdraw(amount: bigint, toAddress: string): Promise<boolean> {
     try {
       if (this.tokenAddress) {
         // Transfer SPL token
@@ -135,7 +135,7 @@ export class SolanaWallet implements IWallet {
           SystemProgram.transfer({
             fromPubkey: this.keypair.publicKey,
             toPubkey: new PublicKey(toAddress),
-            lamports: amount * LAMPORTS_PER_SOL,
+            lamports: amount * BigInt(LAMPORTS_PER_SOL),
           })
         );
 
@@ -165,7 +165,6 @@ export class SolanaWallet implements IWallet {
           tokenIn: params.tokenIn,
           tokenOut: params.tokenOut,
           amount: params.amount,
-          isBuy: params.isBuy,
         });
 
         Logger.info(`Swap succeeded on ${dex}: ${signature}`);

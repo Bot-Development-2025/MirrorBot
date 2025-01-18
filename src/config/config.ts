@@ -3,6 +3,7 @@ interface Config {
   networks: {
     evm: {
       rpcUrl: string;
+      webSocketUrl: string;
     };
     solana: {
       rpcUrl: string;
@@ -18,6 +19,7 @@ export const config: Config = {
   networks: {
     evm: {
       rpcUrl: process.env.EVM_RPC_URL || "https://eth.llamarpc.com",
+      webSocketUrl: process.env.EVM_WEB_SOCKET_URL || "wss://ethereum-rpc.publicnode.com",
     },
     solana: {
       rpcUrl:

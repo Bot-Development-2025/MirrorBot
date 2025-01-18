@@ -39,7 +39,6 @@ export class OrcaProvider implements ISolanaDEXProvider {
     tokenIn,
     tokenOut,
     amount,
-    isBuy,
   }: SwapParams): Promise<string> {
     console.log("Orca Swap Started");
     console.log("TokenIn: ", tokenIn);

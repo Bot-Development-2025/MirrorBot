@@ -64,7 +64,6 @@ export class RaydiumProvider implements ISolanaDEXProvider {
     tokenIn,
     tokenOut,
     amount,
-    isBuy,
   }: SwapParams): Promise<string> {
     try {
       const poolKeys = this.findPool(tokenIn, tokenOut);
@@ -86,8 +85,7 @@ export class RaydiumProvider implements ISolanaDEXProvider {
       const { minAmountOut, amountIn } = await this.calculateAmounts(
         poolKeys,
         poolInfo,
-        amount,
-        isBuy
+        amount
       );
 
       // Create swap instruction
@@ -122,8 +120,7 @@ export class RaydiumProvider implements ISolanaDEXProvider {
   private async calculateAmounts(
     poolKeys: LiquidityPoolKeys,
     poolInfo: any,
-    amount: number,
-    isBuy: boolean
+    amount: bigint
   ) {
     const slippage = new Percent(5, 100); // 5% slippage
 
@@ -137,7 +134,8 @@ export class RaydiumProvider implements ISolanaDEXProvider {
       ),
       currencyOut: new Token(
         TOKEN_PROGRAM_ID,
-        isBuy ? poolKeys.quoteMint : poolKeys.baseMint,
+        poolKeys.baseMint,
+        // isBuy ? poolKeys.quoteMint : poolKeys.baseMint,
         9
       ),
       slippage,

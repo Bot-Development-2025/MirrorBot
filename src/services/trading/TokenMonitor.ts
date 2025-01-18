@@ -45,19 +45,23 @@ export class TokenMonitor implements ITokenMonitor {
   }
 
   private async handleTransaction(transaction: any): Promise<void> {
-    console.log(`Detected ${transaction.type} transaction:`);
+    console.log(`Token In: ${transaction.tokenIn}`);
+    console.log(`Token Out: ${transaction.tokenOut}`);
     console.log(`Amount: ${transaction.amount}`);
     console.log(`From: ${transaction.from}`);
     console.log(`To: ${transaction.to}`);
-    console.log(`Time: ${transaction.timestamp}`);
+    console.log(`Time: ${new Date().toISOString()}`);
 
     for (const strategy of this.strategies.values()) {
       if (strategy.shouldTrade(transaction)) {
         const amount = strategy.calculateTradeAmount(transaction.amount);
-        const isBuy = transaction.type === "SELL"; // We do opposite of detected transaction
 
         try {
-          await strategy.executeTrade(amount, isBuy);
+          await strategy.executeTrade(
+            amount,
+            transaction.tokenIn,
+            transaction.tokenOut
+          );
         } catch (error) {
           Logger.error(`Trade execution failed: ${error}`);
         }

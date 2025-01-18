@@ -4,6 +4,7 @@ import { ethers, JsonRpcProvider, BaseWallet } from "ethers";
 import { Logger } from "../../utils/logger";
 import { UniswapV3Provider } from "../dex/UniswapV3Provider";
 import { ChainId } from "@uniswap/sdk-core";
+import { tokens } from "../../constants/tokens";
 
 export class EVMWallet implements IWallet {
   public address: string;
@@ -45,7 +46,7 @@ export class EVMWallet implements IWallet {
     return true;
   }
 
-  async getBalance(): Promise<number> {
+  async getBalance(): Promise<bigint> {
     try {
       if (this.tokenAddress) {
         // Get ERC20 token balance
@@ -61,19 +62,34 @@ export class EVMWallet implements IWallet {
         const balance = await this.provider.getBalance(this.address);
         this.balance = Number(ethers.formatEther(balance));
       }
-      return this.balance;
+      return BigInt(this.balance);
     } catch (error) {
       Logger.error(`Failed to get balance: ${error}`);
-      return 0;
+      return 0n;
     }
   }
 
-  async deposit(amount: number, fromAddress: string): Promise<boolean> {
+  async getTokenBalance(tokenAddress: string): Promise<bigint> {
+    try {
+      const tokenContract = new ethers.Contract(
+        tokenAddress,
+        ["function balanceOf(address) view returns (uint256)"],
+        this.provider
+      );
+      const balance = await tokenContract.balanceOf(this.address);
+      return BigInt(balance);
+    } catch (error) {
+      Logger.error(`Failed to get balance: ${error}`);
+      return 0n;
+    }
+  }
+
+  async deposit(amount: bigint, fromAddress: string): Promise<boolean> {
     // For EVMWallet, deposit is passive - just return true as deposits don't need wallet action
     return true;
   }
 
-  async withdraw(amount: number, toAddress: string): Promise<boolean> {
+  async withdraw(amount: bigint, toAddress: string): Promise<boolean> {
     try {
       const value = ethers.parseEther(amount.toString());
 
@@ -105,14 +121,35 @@ export class EVMWallet implements IWallet {
   async executeSwap(params: SwapParams): Promise<boolean> {
     try {
       // Approve token first if selling
-      if (!params.isBuy) {
+      const tokenToApprove = params.tokenIn;
+
+      // Skip approval for native tokens (e.g., ETH)
+      if (tokenToApprove.toLowerCase() !== ethers.ZeroAddress) {
+        const tokenBalance = await this.getTokenBalance(params.tokenIn);
+        if (tokenBalance < params.amount) {
+          console.log("insufficient balance.");
+          return false;
+        }
+        const poolAddress = await UniswapV3Provider.getPoolAddress(
+          params.tokenIn !== tokens["WETH"].address
+            ? params.tokenIn
+            : params.tokenOut,
+          500
+        );
         const approveTx = await this.uniswapProvider.approveToken(
-          this.tokenAddress,
+          tokenToApprove,
+          poolAddress,
           params.amount.toString()
         );
         const approveResponse = await this.wallet.sendTransaction(approveTx);
         await approveResponse.wait();
         Logger.info(`Token approved: ${approveResponse.hash}`);
+      } else {
+        const ethBalance = await this.provider.getBalance(this.wallet.address);
+        if (ethBalance < params.amount) {
+          console.log("insufficient balance.");
+          return false;
+        }
       }
 
       // Create and send swap transaction

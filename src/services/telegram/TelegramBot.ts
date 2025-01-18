@@ -144,24 +144,26 @@ export class TelegramBot {
           tokenAddress,
           percentage,
           walletAddress: wallet.address,
-          calculateTradeAmount: (amount: number) => amount * (percentage / 100),
+          calculateTradeAmount: (amount: bigint) =>
+            (amount * BigInt(percentage)) / 100n,
           shouldTrade: (tx: any) => true, // Implement proper logic
-          executeTrade: async (amount: number, isBuy: boolean) => {
-            let tokenOut: string;
-
+          executeTrade: async (
+            amount: bigint,
+            tokenIn: string,
+            tokenOut: string
+          ) => {
             if (wallet.chain === "SOLANA") {
-              tokenOut = "So11111111111111111111111111111111111111112";
+              // tokenOut = "So11111111111111111111111111111111111111112";
             } else if (wallet.chain === "EVM") {
-              tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+              // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
             } else {
               throw new Error("Unsupported wallet type");
             }
 
             return wallet.executeSwap({
-              tokenIn: tokenAddress,
-              tokenOut: tokenOut,
+              tokenIn,
+              tokenOut,
               amount,
-              isBuy,
             });
           },
         });
@@ -489,25 +491,26 @@ export class TelegramBot {
               tokenAddress: trading.tokenAddress,
               percentage: trading.percentage,
               walletAddress: trading.walletAddress,
-              calculateTradeAmount: (amount: number) =>
-                amount * (trading.percentage / 100),
+              calculateTradeAmount: (amount: bigint) =>
+                (amount * BigInt(trading.percentage)) / 100n,
               shouldTrade: (tx: any) => true, // Implement proper logic
-              executeTrade: async (amount: number, isBuy: boolean) => {
-                let tokenOut: string;
-
+              executeTrade: async (
+                amount: bigint,
+                tokenIn: string,
+                tokenOut: string
+              ) => {
                 if (wallet.chain === "SOLANA") {
-                  tokenOut = "So11111111111111111111111111111111111111112";
+                  // tokenOut = "So11111111111111111111111111111111111111112";
                 } else if (wallet.chain === "EVM") {
-                  tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+                  // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
                 } else {
                   throw new Error("Unsupported wallet type");
                 }
 
                 return wallet.executeSwap({
-                  tokenIn: tokenAddress,
-                  tokenOut: tokenOut,
+                  tokenIn,
+                  tokenOut,
                   amount,
-                  isBuy,
                 });
               },
             });
