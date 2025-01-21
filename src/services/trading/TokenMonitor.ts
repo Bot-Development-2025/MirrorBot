@@ -3,11 +3,14 @@ import { ITradeStrategy } from "@/core/interfaces/ITradeStrategy";
 import { EVMService } from "../blockchain/EVMService";
 import { SolanaService } from "../blockchain/SolanaService";
 import { Logger } from "../../utils/logger";
+import { tokens } from "../../constants/tokens";
+import Bottleneck from "bottleneck";
 
 export class TokenMonitor implements ITokenMonitor {
   public strategies: Map<string, ITradeStrategy> = new Map();
   private isMonitoring: boolean = false;
   private blockchainService: EVMService | SolanaService;
+  public tradeLimiter;
 
   constructor(
     public readonly tokenAddress: string,
@@ -15,6 +18,10 @@ export class TokenMonitor implements ITokenMonitor {
   ) {
     this.blockchainService =
       chain === "EVM" ? new EVMService() : new SolanaService();
+    this.tradeLimiter = new Bottleneck({
+      maxConcurrent: 1,
+      minTime: 1000,
+    });
   }
 
   async startMonitoring(): Promise<void> {
@@ -45,26 +52,34 @@ export class TokenMonitor implements ITokenMonitor {
   }
 
   private async handleTransaction(transaction: any): Promise<void> {
-    console.log(`Token In: ${transaction.tokenIn}`);
-    console.log(`Token Out: ${transaction.tokenOut}`);
-    console.log(`Amount: ${transaction.amount}`);
-    console.log(`From: ${transaction.from}`);
-    console.log(`To: ${transaction.to}`);
-    console.log(`Time: ${new Date().toISOString()}`);
+    // console.log(`Token In: ${transaction.tokenIn}`);
+    // console.log(`Token Out: ${transaction.tokenOut}`);
+    // console.log(`Amount: ${transaction.amount}`);
+    // console.log(`From: ${transaction.from}`);
+    // console.log(`To: ${transaction.to}`);
+    // console.log(`Time: ${new Date().toISOString()}`);
 
     for (const strategy of this.strategies.values()) {
       if (strategy.shouldTrade(transaction)) {
         const amount = strategy.calculateTradeAmount(transaction.amount);
-
-        try {
-          await strategy.executeTrade(
-            amount,
-            transaction.tokenIn,
-            transaction.tokenOut
-          );
-        } catch (error) {
-          Logger.error(`Trade execution failed: ${error}`);
+        let tokenIn = transaction.tokenIn;
+        let tokenOut = transaction.tokenOut;
+        if (this.chain === "SOLANA") {
+          if (transaction.type === "SELL") {
+            tokenIn = this.tokenAddress;
+            tokenOut = tokens["SOL"].address;
+          } else {
+            tokenIn = tokens["SOL"].address;
+            tokenOut = this.tokenAddress;
+          }
         }
+        await this.tradeLimiter.schedule(async () => {
+          try {
+            await strategy.executeTrade(amount, tokenIn, tokenOut);
+          } catch (error) {
+            Logger.error(`Trade execution failed: ${error}`);
+          }
+        });
       }
     }
   }

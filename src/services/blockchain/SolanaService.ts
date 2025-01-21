@@ -1,19 +1,20 @@
-import {
-  Connection,
-  PublicKey,
-  ParsedTransactionWithMeta,
-  ConfirmedSignatureInfo,
-  ParsedInstruction,
-} from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
 import { config } from "../../config/config";
 import { Logger } from "../../utils/logger";
+import Bottleneck from "bottleneck";
 
 export class SolanaService {
   private connection: Connection;
   private subscriptions: Map<string, number> = new Map();
+  private readonly tradeLimiter;
 
   constructor() {
     this.connection = new Connection(config.networks.solana.rpcUrl);
+    this.tradeLimiter = new Bottleneck({
+      maxConcurrent: 1,
+      minTime: 1000,
+    });
+    // this.connection = new Connection(config.networks.solana.rpcUrl);
   }
 
   // Alternative method using websocket for real-time monitoring
@@ -31,51 +32,53 @@ export class SolanaService {
         programId,
         async (logs, context) => {
           if (logs.err) {
-            console.log("Log error:", logs.err);
+            // console.log("Log error:", logs.err);
             return;
           }
 
           try {
-            console.log("Received signature:", logs.signature);
+            await this.tradeLimiter.schedule(async () => {
+              // console.log("Received signature:", logs.signature);
 
-            // Wait for transaction finality with more detailed options
-            const latestBlockhash =
-              await this.connection.getLatestBlockhash("finalized");
-            const confirmation = await this.connection.confirmTransaction(
-              {
-                signature: logs.signature,
-                ...latestBlockhash,
-              },
-              "finalized"
-            );
-
-            if (confirmation.value.err) {
-              console.log("Confirmation error:", confirmation.value.err);
-              return;
-            }
-
-            // Try getting transaction with different options
-            const txInfo = await this.connection.getTransaction(
-              logs.signature,
-              {
-                maxSupportedTransactionVersion: 0,
-                commitment: "finalized",
-              }
-            );
-
-            if (!txInfo) {
-              Logger.error(
-                `Transaction info not found for signature: ${logs.signature}`
+              // Wait for transaction finality with more detailed options
+              const latestBlockhash =
+                await this.connection.getLatestBlockhash("finalized");
+              const confirmation = await this.connection.confirmTransaction(
+                {
+                  signature: logs.signature,
+                  ...latestBlockhash,
+                },
+                "finalized"
               );
-              return;
-            }
 
-            const transaction = this.parseTokenTransaction(txInfo);
-            if (transaction) {
-              callback(transaction);
-            }
+              if (confirmation.value.err) {
+                // console.log("Confirmation error:", confirmation.value.err);
+                return;
+              }
+
+              // Try getting transaction with different options
+              const txInfo = await this.connection.getTransaction(
+                logs.signature,
+                {
+                  maxSupportedTransactionVersion: 0,
+                  commitment: "finalized",
+                }
+              );
+
+              if (!txInfo) {
+                // Logger.error(
+                //   `Transaction info not found for signature: ${logs.signature}`
+                // );
+                return;
+              }
+
+              const transaction = this.parseTokenTransaction(txInfo);
+              if (transaction) {
+                callback(transaction);
+              }
+            });
           } catch (error) {
-            Logger.error(`Failed to parse Solana transfer: ${error}`);
+            // Logger.error(`Failed to parse Solana transfer: ${error}`);
           }
         },
         "confirmed"
@@ -110,14 +113,16 @@ export class SolanaService {
 
       return {
         type: isBuy ? "BUY" : "SELL",
-        amount: Math.abs(
-          Number(postBalance.uiTokenAmount.amount) -
-            Number(preBalance.uiTokenAmount.amount)
+        amount: BigInt(
+          Math.abs(
+            Number(postBalance.uiTokenAmount.amount) -
+              Number(preBalance.uiTokenAmount.amount)
+          )
         ),
         timestamp: new Date(txInfo.blockTime! * 1000),
         signature: txInfo.transaction.signatures[0],
-        from: txInfo.transaction.message.accountKeys[0].toString(),
-        to: txInfo.transaction.message.accountKeys[1].toString(),
+        from: "",
+        to: "",
       };
     } catch (error) {
       Logger.error(`Error parsing token transaction: ${error}`);

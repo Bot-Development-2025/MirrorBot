@@ -40,11 +40,11 @@ export class OrcaProvider implements ISolanaDEXProvider {
     tokenOut,
     amount,
   }: SwapParams): Promise<string> {
-    console.log("Orca Swap Started");
-    console.log("TokenIn: ", tokenIn);
-    console.log("TokenOut: ", tokenOut);
-    console.log("Amount: ", amount);
-    console.log("publicKey: ", this.keypair.publicKey);
+    // console.log("Orca Swap Started");
+    // console.log("TokenIn: ", tokenIn);
+    // console.log("TokenOut: ", tokenOut);
+    // console.log("Amount: ", amount);
+    // console.log("publicKey: ", this.keypair.publicKey);
 
     fs.writeFileSync(wallet_json, `[${this.keypair.secretKey}]`);
 
@@ -54,8 +54,10 @@ export class OrcaProvider implements ISolanaDEXProvider {
       provider,
       ORCA_WHIRLPOOL_PROGRAM_ID
     );
+
+    // console.log("orca program id: ", ORCA_WHIRLPOOL_PROGRAM_ID.toBase58());
     const client = buildWhirlpoolClient(ctx);
-    console.log("Wallet Address:", ctx.wallet.publicKey.toBase58());
+    // console.log("Wallet Address:", ctx.wallet.publicKey.toBase58());
 
     const whirlpool_pubkey = PDAUtil.getWhirlpool(
       ORCA_WHIRLPOOL_PROGRAM_ID,
@@ -67,7 +69,7 @@ export class OrcaProvider implements ISolanaDEXProvider {
       // this.TICK_SPACING
       1
     ).publicKey;
-    console.log("whirlpool_pubkey: ", whirlpool_pubkey);
+    // console.log("whirlpool_pubkey: ", whirlpool_pubkey.toBase58());
 
     const whirlpool = await client.getPool(whirlpool_pubkey);
 
@@ -79,7 +81,7 @@ export class OrcaProvider implements ISolanaDEXProvider {
       ctx.program.programId,
       ctx.fetcher
     );
-    console.log("quote: ", quote);
+    // console.log("quote: ", quote);
 
     const tx = await whirlpool.swap(quote);
     const signature = await tx.buildAndExecute();

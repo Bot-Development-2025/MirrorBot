@@ -107,6 +107,39 @@ export class SolanaWallet implements IWallet {
     }
   }
 
+  async getTokenBalance(tokenAddress: string): Promise<bigint> {
+    try {
+      const tokenPublicKey = new PublicKey(tokenAddress);
+      const accountInfo = await this.connection.getParsedTokenAccountsByOwner(
+        this.keypair.publicKey,
+        { mint: tokenPublicKey }
+      );
+
+      if (accountInfo.value[0]) {
+        const balance =
+          accountInfo.value[0].account.data.parsed.info.tokenAmount.amount;
+        this.balance = balance;
+        return balance;
+      }
+      return 0n;
+    } catch (error) {
+      Logger.error(`Failed to get balance: ${error}`);
+      return 0n;
+    }
+  }
+
+  async getSOLBalance(): Promise<bigint> {
+    try {
+      // Get SOL balance
+      const balance = await this.connection.getBalance(this.keypair.publicKey);
+      this.balance = balance / LAMPORTS_PER_SOL;
+      return BigInt(this.balance);
+    } catch (error) {
+      Logger.error(`Failed to get balance: ${error}`);
+      return 0n;
+    }
+  }
+
   async deposit(amount: bigint, fromAddress: string): Promise<boolean> {
     // For SolanaWallet, deposit is passive - just return true as deposits don't need wallet action
     return true;
@@ -152,7 +185,9 @@ export class SolanaWallet implements IWallet {
   }
 
   async executeSwap(params: SwapParams): Promise<boolean> {
-    console.log("address: ", this.address);
+    if (params.amount === 0n) {
+      return false;
+    }
     // Try each DEX in order until one succeeds
     for (const dex of this.DEX_ORDER) {
       try {
@@ -161,6 +196,10 @@ export class SolanaWallet implements IWallet {
 
         Logger.info(`Attempting swap on ${dex}...`);
 
+        const walletBalance = await this.getTokenBalance(params.tokenIn);
+        if (walletBalance > params.amount) {
+          break;
+        }
         const signature = await provider.createSwapTransaction({
           tokenIn: params.tokenIn,
           tokenOut: params.tokenOut,
