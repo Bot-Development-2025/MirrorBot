@@ -1,8 +1,9 @@
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Document, Schema } from "mongoose";
 
 export interface ITradingDocument extends Document {
   walletAddress: string;
   tokenAddress: string;
+  maxCap: number;
   percentage: number;
   chain: "EVM" | "SOLANA";
   active: boolean;
@@ -14,6 +15,7 @@ const TradingSchema = new Schema({
   walletAddress: { type: String, required: true },
   tokenAddress: { type: String, required: true },
   percentage: { type: Number, required: true },
+  maxCap: { type: Number, required: true },
   chain: { type: String, required: true, enum: ["EVM", "SOLANA"] },
   active: { type: Boolean, default: true },
   createdAt: { type: Date, default: Date.now },

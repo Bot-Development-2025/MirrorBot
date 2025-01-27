@@ -1,4 +1,4 @@
-import mongoose, { Schema, Document } from "mongoose";
+import mongoose, { Document, Schema } from "mongoose";
 
 export interface IWalletDocument extends Document {
   address: string;
@@ -8,6 +8,7 @@ export interface IWalletDocument extends Document {
 }
 
 const WalletSchema = new Schema({
+  userId: { type: String, required: true },
   address: { type: String, required: true, unique: true },
   chain: { type: String, required: true, enum: ["EVM", "SOLANA"] },
   privateKey: { type: String, required: true },

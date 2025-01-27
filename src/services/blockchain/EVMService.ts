@@ -1,6 +1,8 @@
 import Bottleneck from "bottleneck";
-import { Listener, ethers, WebSocketProvider } from "ethers";
+import { Listener, WebSocketProvider, ethers } from "ethers";
+
 import { config } from "../../config/config";
+import { tokens } from "../../constants/tokens";
 import { Logger } from "../../utils/logger";
 import { UniswapV3Provider } from "../dex/UniswapV3Provider";
 
@@ -47,13 +49,27 @@ export class EVMService {
         if (!parsedLog) return;
 
         const { sender, recipient, amount0, amount1 } = parsedLog.args;
+        const amount = (amount0 > 0n ? amount1 : amount0) * -1n;
+
+        const tokenIn = amount0 > 0n ? token1 : token0;
+        const tokenOut = amount0 > 0n ? token0 : token1;
+
+        if (
+          (token0 === tokens["WETH"].address &&
+            (amount0 > 0n ? amount0 : amount0 * -1n) <
+              BigInt(0.03 * 10 ** 18)) ||
+          (token1 === tokens["WETH"].address &&
+            (amount1 > 0n ? amount1 : amount1 * -1n) < BigInt(0.03 * 10 ** 18))
+        ) {
+          return;
+        }
 
         const transaction = {
           from: sender,
           to: recipient,
-          amount: (amount0 > 0n ? amount1 : amount0) * -1n,
-          tokenIn: amount0 > 0n ? token1 : token0,
-          tokenOut: amount0 > 0n ? token0 : token1,
+          amount,
+          tokenIn,
+          tokenOut,
         };
         await this.tradeLimiter.schedule(() => callback(transaction));
       } catch (error) {

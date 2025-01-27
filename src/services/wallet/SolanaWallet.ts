@@ -1,20 +1,24 @@
-import { IWallet, DEXProvider, SwapParams } from "@/core/interfaces/IWallet";
-import { JupiterProvider } from "../dex/JupiterProvider";
-import { RaydiumProvider } from "../dex/RaydiumProvider";
-import { OrcaProvider } from "../dex/OrcaProvider";
-import { config } from "../../config/config";
+import bs58 from "bs58";
+
+import { ISolanaDEXProvider } from "@/core/interfaces/IDEXProvider";
+import { DEXProvider, IWallet, SwapParams } from "@/core/interfaces/IWallet";
 import {
   Connection,
   Keypair,
+  LAMPORTS_PER_SOL,
   PublicKey,
   SystemProgram,
   Transaction,
   sendAndConfirmTransaction,
-  LAMPORTS_PER_SOL,
 } from "@solana/web3.js";
+
+import { config } from "../../config/config";
 import { Logger } from "../../utils/logger";
-import bs58 from "bs58";
-import { ISolanaDEXProvider } from "@/core/interfaces/IDEXProvider";
+import { OrcaProvider } from "../dex/OrcaProvider";
+
+// import { JupiterProvider } from "../dex/JupiterProvider";
+
+// import { RaydiumProvider } from "../dex/RaydiumProvider";
 
 export class SolanaWallet implements IWallet {
   public address: string;
@@ -41,15 +45,15 @@ export class SolanaWallet implements IWallet {
     // Initialize DEX providers
     this.dexProviders = new Map<DEXProvider, ISolanaDEXProvider>([
       ["ORCA", new OrcaProvider(this.connection, this.keypair)],
-      [
-        "RAYDIUM",
-        new RaydiumProvider(
-          this.connection,
-          this.keypair,
-          "https://api.raydium.io/v2/sdk/liquidity/mainnet.json"
-        ),
-      ],
-      ["JUPITER", new JupiterProvider(this.connection, this.keypair)],
+      // [
+      //   "RAYDIUM",
+      //   new RaydiumProvider(
+      //     this.connection,
+      //     this.keypair,
+      //     "https://api.raydium.io/v2/sdk/liquidity/mainnet.json"
+      //   ),
+      // ],
+      // ["JUPITER", new JupiterProvider(this.connection, this.keypair)],
     ]);
   }
 
@@ -62,15 +66,15 @@ export class SolanaWallet implements IWallet {
 
     this.dexProviders = new Map<DEXProvider, ISolanaDEXProvider>([
       ["ORCA", new OrcaProvider(this.connection, this.keypair)],
-      [
-        "RAYDIUM",
-        new RaydiumProvider(
-          this.connection,
-          this.keypair,
-          "https://api.raydium.io/v2/sdk/liquidity/mainnet.json"
-        ),
-      ],
-      ["JUPITER", new JupiterProvider(this.connection, this.keypair)],
+      // [
+      //   "RAYDIUM",
+      //   new RaydiumProvider(
+      //     this.connection,
+      //     this.keypair,
+      //     "https://api.raydium.io/v2/sdk/liquidity/mainnet.json"
+      //   ),
+      // ],
+      // ["JUPITER", new JupiterProvider(this.connection, this.keypair)],
     ]);
 
     return true;
@@ -128,15 +132,14 @@ export class SolanaWallet implements IWallet {
     }
   }
 
-  async getSOLBalance(): Promise<bigint> {
+  async getNativeBalance(): Promise<number> {
     try {
       // Get SOL balance
       const balance = await this.connection.getBalance(this.keypair.publicKey);
-      this.balance = balance / LAMPORTS_PER_SOL;
-      return BigInt(this.balance);
+      return balance / LAMPORTS_PER_SOL;
     } catch (error) {
       Logger.error(`Failed to get balance: ${error}`);
-      return 0n;
+      return 0;
     }
   }
 

@@ -1,9 +1,11 @@
-import { Telegraf, Context, session } from "telegraf";
-import { WalletManager } from "../wallet/WalletManager";
-import { TokenMonitor } from "../trading/TokenMonitor";
+import { Context, Telegraf, session } from "telegraf";
+
+import { tokens } from "../../constants/tokens";
 import { TradingModel } from "../../models/Trading";
-import { Logger } from "../../utils/logger";
 import { shortenAddress } from "../../utils/helpers";
+import { Logger } from "../../utils/logger";
+import { TokenMonitor } from "../trading/TokenMonitor";
+import { WalletManager } from "../wallet/WalletManager";
 
 interface ISessionData {
   step: string;
@@ -21,7 +23,12 @@ export class TelegramBot {
   private tokenMonitors: Map<string, TokenMonitor> = new Map();
   private currentContext: Map<
     string,
-    { step: number; walletAddress?: string; tokenAddress?: string }
+    {
+      step: number;
+      walletAddress?: string;
+      tokenAddress?: string;
+      percentage?: string;
+    }
   > = new Map();
 
   constructor(private readonly botToken: string) {
@@ -83,13 +90,36 @@ export class TelegramBot {
 
         return;
       }
+      if (msgCtx.session.step === "change_max_cap") {
+        const newMaxCap = parseFloat(msgCtx.message.text);
+        if (isNaN(newMaxCap) || newMaxCap < 0) {
+          await msgCtx.reply(
+            "Invalid maximum cap. Please enter a number greater than 0."
+          );
+          return;
+        }
+
+        const { walletAddress, tokenAddress } = msgCtx.session;
+        // Update the percentage in the database
+        await TradingModel.updateOne(
+          { walletAddress, tokenAddress },
+          { maxCap: newMaxCap }
+        );
+        const trading = await TradingModel.findOne({
+          walletAddress,
+          tokenAddress,
+        });
+        await msgCtx.reply(
+          `✅ Trading max cap updated to ${newMaxCap}${trading?.chain === "SOLANA" ? "SOL" : "ETH"} for token ${tokenAddress}`
+        );
+
+        return;
+      }
 
       const userId = msgCtx.from.id.toString();
       const context = this.currentContext.get(userId);
 
       if (!context) return; // No active context
-
-      console.log(msgCtx.session.step);
 
       if (context.step === 1) {
         // Handle token address input
@@ -109,6 +139,21 @@ export class TelegramBot {
           return;
         }
 
+        context.percentage = msgCtx.message.text;
+        context.step = 3;
+
+        await msgCtx.reply(
+          `You entered: ${context.percentage}%\nPlease provide the maximum cap for the amount of ETH or SOL in trading transactions to help manage high-volume activity.`
+        );
+      } else if (context.step === 3) {
+        // Handle percentage input
+        const maxCap = parseFloat(msgCtx.message.text);
+        if (isNaN(maxCap) || maxCap < 0) {
+          await msgCtx.reply(
+            "Invalid maximum cap. Please enter a number greater than 0."
+          );
+          return;
+        }
         // Ensure walletAddress is defined
         const walletAddress = context.walletAddress;
         if (!walletAddress) {
@@ -140,9 +185,15 @@ export class TelegramBot {
           await monitor.startMonitoring();
         }
 
+        const percentage = Number(context.percentage ?? 0);
+        if (!percentage || isNaN(percentage)) {
+          await msgCtx.reply("Percentage is not defined");
+        }
+
         monitor.addTradeStrategy({
           tokenAddress,
           percentage,
+          maxCap,
           walletAddress: wallet.address,
           calculateTradeAmount: (amount: bigint) =>
             (amount * BigInt(percentage)) / 100n,
@@ -154,8 +205,20 @@ export class TelegramBot {
           ) => {
             if (wallet.chain === "SOLANA") {
               // tokenOut = "So11111111111111111111111111111111111111112";
+              if (
+                tokenIn === tokens["SOL"].address ||
+                amount > maxCap * 10 ** 9
+              ) {
+                return false;
+              }
             } else if (wallet.chain === "EVM") {
               // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+              if (
+                tokenIn === tokens["WETH"].address ||
+                amount > maxCap * 10 ** 18
+              ) {
+                return false;
+              }
             } else {
               throw new Error("Unsupported wallet type");
             }
@@ -171,12 +234,13 @@ export class TelegramBot {
         await TradingModel.create({
           walletAddress: wallet.address,
           tokenAddress,
+          maxCap,
           percentage,
           chain: wallet.chain,
         });
 
         await msgCtx.reply(
-          `✅ Trading setup complete for token ${tokenAddress} with percentage ${percentage}%`
+          `✅ Trading setup complete for token ${tokenAddress} with percentage ${percentage}% and maxCap ${maxCap}${wallet.chain === "SOLANA" ? "SOL" : "ETH"}`
         );
 
         // Clear the context after completion
@@ -208,6 +272,10 @@ export class TelegramBot {
                 {
                   text: "Change Percentage",
                   callback_data: `change_percentage_${tradingId}`,
+                },
+                {
+                  text: "Change Maximum Cap",
+                  callback_data: `change_max_cap_${tradingId}`,
                 },
               ],
               [
@@ -257,6 +325,21 @@ export class TelegramBot {
       ctx.session.tokenAddress = tokenAddress;
       await ctx.reply(`Please send the new percentage for ${tokenAddress}:`);
     });
+    this.bot.action(/change_max_cap_(.+)/, async (ctx) => {
+      const tradingId = ctx.match[1];
+      const trading = await TradingModel.findById(tradingId);
+
+      if (!trading) {
+        await ctx.reply("Trading strategy not found.");
+        return;
+      }
+
+      const { tokenAddress, walletAddress } = trading;
+      ctx.session.step = "change_max_cap";
+      ctx.session.walletAddress = walletAddress;
+      ctx.session.tokenAddress = tokenAddress;
+      await ctx.reply(`Please send the new maximum cap for ${tokenAddress}:`);
+    });
 
     this.bot.action("list_wallets", this.handleListWallets.bind(this));
     this.bot.action(/wallet_(.+)/, async (ctx) => {
@@ -269,7 +352,7 @@ export class TelegramBot {
   private async handleStart(ctx: Context): Promise<void> {
     try {
       await ctx.reply(
-        "Welcome to the Trading Mirror Bot! 🤖\n\n" +
+        "Welcome to the Zico Special Bot! 🤖\n\n" +
           "Please choose an option below:",
         {
           reply_markup: {
@@ -312,7 +395,14 @@ export class TelegramBot {
 
   private async handleCreateWalletEVM(ctx: Context): Promise<void> {
     try {
-      const wallet = await this.walletManager.createWallet("EVM");
+      if (!ctx.from?.username) {
+        await ctx.reply("Something went wrong.");
+        return;
+      }
+      const wallet = await this.walletManager.createWallet(
+        "EVM",
+        ctx.from?.username
+      );
       await ctx.reply(
         `✅ EVM Wallet created successfully!\n\nAddress: ${wallet.address}`
       );
@@ -324,9 +414,16 @@ export class TelegramBot {
 
   private async handleCreateWalletSolana(ctx: Context): Promise<void> {
     try {
-      const wallet = await this.walletManager.createWallet("SOLANA");
+      if (!ctx.from?.username) {
+        await ctx.reply("Something went wrong.");
+        return;
+      }
+      const wallet = await this.walletManager.createWallet(
+        "SOLANA",
+        ctx.from?.username
+      );
       await ctx.reply(
-        `✅ SOLANA Wallet created successfully!\n\nAddress: ${wallet.address}\n\nUse /deposit to fund your wallet.`
+        `✅ SOLANA Wallet created successfully!\n\nAddress: ${wallet.address}`
       );
     } catch (error) {
       Logger.error(`Failed to create SOLANA wallet: ${error}`);
@@ -336,9 +433,17 @@ export class TelegramBot {
 
   private async handleSetupTrading(ctx: Context): Promise<void> {
     try {
+      if (!ctx.from?.username) {
+        await ctx.reply("Something went wrong.");
+        return;
+      }
       // Fetch all wallets
-      const wallets = await this.walletManager.getAllWallets();
-      const savedTradings = await TradingModel.find({}); // Fetch all trading strategies
+      const wallets = await this.walletManager.getAllWallets(
+        ctx.from?.username
+      );
+      const savedTradings = await TradingModel.find({
+        walletAddress: { $in: wallets.map((w) => w.address) },
+      }); // Fetch all trading strategies
 
       // Filter wallets that do not have any associated trading strategies
       const walletsWithoutActiveTradings = wallets.filter((wallet) => {
@@ -385,7 +490,17 @@ export class TelegramBot {
 
   private async handleManageTrading(ctx: Context): Promise<void> {
     try {
-      const savedTradings = await TradingModel.find({}); // Fetch all trading strategies
+      if (!ctx.from?.username) {
+        await ctx.reply("Something went wrong.");
+        return;
+      }
+      // Fetch all wallets
+      const wallets = await this.walletManager.getAllWallets(
+        ctx.from?.username
+      );
+      const savedTradings = await TradingModel.find({
+        walletAddress: { $in: wallets.map((w) => w.address) },
+      }); // Fetch all trading strategies
       console.log("savedTradings: ", savedTradings);
 
       if (savedTradings.length === 0) {
@@ -399,7 +514,7 @@ export class TelegramBot {
         const statusIcon = isActive ? "✅" : "❌"; // Use icons based on the active status
 
         return {
-          text: `${statusIcon} ${shortenAddress(trading.walletAddress)} - ${shortenAddress(trading.tokenAddress)} (${trading.percentage}%)`,
+          text: `${statusIcon} ${shortenAddress(trading.walletAddress)} - ${shortenAddress(trading.tokenAddress)} (${trading.percentage}% - ${trading.maxCap}${trading.chain === "SOLANA" ? "SOL" : "ETH"})`,
           callback_data: `manage_trading_${trading.id}`, // Unique callback data
         };
       });
@@ -419,7 +534,13 @@ export class TelegramBot {
 
   private async handleListWallets(ctx: Context): Promise<void> {
     try {
-      const wallets = await this.walletManager.getAllWallets();
+      if (!ctx.from?.username) {
+        await ctx.reply("Something went wrong.");
+        return;
+      }
+      const wallets = await this.walletManager.getAllWallets(
+        ctx.from?.username
+      );
 
       if (wallets.length === 0) {
         await ctx.reply("You don't have any wallets.");
@@ -434,14 +555,18 @@ export class TelegramBot {
 
       // Create buttons for EVM wallets first, then SOLANA wallets
       const walletButtons = [
-        ...evmWallets.map((wallet) => ({
-          text: `${wallet.chain} - ${shortenAddress(wallet.address)}`,
-          callback_data: `wallet_${wallet.address}`, // Unique callback data for each wallet
-        })),
-        ...solanaWallets.map((wallet) => ({
-          text: `${wallet.chain} - ${shortenAddress(wallet.address)}`,
-          callback_data: `wallet_${wallet.address}`, // Unique callback data for each wallet
-        })),
+        ...(await Promise.all(
+          evmWallets.map(async (wallet) => ({
+            text: `${wallet.chain} - ${shortenAddress(wallet.address)}(${(await wallet.getNativeBalance()).toFixed(2)}ETH)`,
+            callback_data: `wallet_${wallet.address}`, // Unique callback data for each wallet
+          }))
+        )),
+        ...(await Promise.all(
+          solanaWallets.map(async (wallet) => ({
+            text: `${wallet.chain} - ${shortenAddress(wallet.address)}(${(await wallet.getNativeBalance()).toFixed(2)}SOL)`,
+            callback_data: `wallet_${wallet.address}`, // Unique callback data for each wallet
+          }))
+        )),
       ];
 
       await ctx.reply("🏦 Your Wallets:", {
@@ -489,6 +614,7 @@ export class TelegramBot {
           if (wallet) {
             monitor.addTradeStrategy({
               tokenAddress: trading.tokenAddress,
+              maxCap: trading.maxCap,
               percentage: trading.percentage,
               walletAddress: trading.walletAddress,
               calculateTradeAmount: (amount: bigint) =>
@@ -501,10 +627,20 @@ export class TelegramBot {
               ) => {
                 if (wallet.chain === "SOLANA") {
                   // tokenOut = "So11111111111111111111111111111111111111112";
+                  if (
+                    tokenIn === tokens["SOL"].address ||
+                    amount > trading.maxCap * 10 ** 9
+                  ) {
+                    return false;
+                  }
                 } else if (wallet.chain === "EVM") {
                   // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-                } else {
-                  throw new Error("Unsupported wallet type");
+                  if (
+                    tokenIn === tokens["WETH"].address ||
+                    amount > trading.maxCap * 10 ** 18
+                  ) {
+                    return false;
+                  }
                 }
 
                 return wallet.executeSwap({

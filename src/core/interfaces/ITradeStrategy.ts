@@ -1,6 +1,7 @@
 export interface ITradeStrategy {
   tokenAddress: string;
   percentage: number;
+  maxCap: number;
   walletAddress: string;
 
   calculateTradeAmount(detectedAmount: bigint): bigint;

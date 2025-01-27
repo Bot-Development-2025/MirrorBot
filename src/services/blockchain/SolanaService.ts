@@ -1,7 +1,10 @@
-import { Connection, PublicKey } from "@solana/web3.js";
-import { config } from "../../config/config";
-import { Logger } from "../../utils/logger";
 import Bottleneck from "bottleneck";
+
+import { Connection, PublicKey } from "@solana/web3.js";
+
+import { config } from "../../config/config";
+import { tokens } from "../../constants/tokens";
+import { Logger } from "../../utils/logger";
 
 export class SolanaService {
   private connection: Connection;
@@ -111,14 +114,26 @@ export class SolanaService {
       const isBuy =
         postBalance.uiTokenAmount.amount > preBalance.uiTokenAmount.amount;
 
+      const amount = Math.abs(
+        Number(postBalance.uiTokenAmount.amount) -
+          Number(preBalance.uiTokenAmount.amount)
+      );
+
+      if (
+        postBalance.mint === tokens["SOL"].address &&
+        amount < 0.5 * 10 ** 9
+      ) {
+        return;
+      } else if (
+        postBalance.mint !== tokens["SOL"].address &&
+        amount < 10 ** 8
+      ) {
+        return;
+      }
+
       return {
         type: isBuy ? "BUY" : "SELL",
-        amount: BigInt(
-          Math.abs(
-            Number(postBalance.uiTokenAmount.amount) -
-              Number(preBalance.uiTokenAmount.amount)
-          )
-        ),
+        amount: BigInt(amount),
         timestamp: new Date(txInfo.blockTime! * 1000),
         signature: txInfo.transaction.signatures[0],
         from: "",

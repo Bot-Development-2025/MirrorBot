@@ -1,14 +1,18 @@
 import { IWallet } from "../../core/interfaces/IWallet";
-import { WalletModel, IWalletDocument } from "../../models/Wallet";
+import { IWalletDocument, WalletModel } from "../../models/Wallet";
 import { Logger } from "../../utils/logger";
 import { WalletFactory } from "./WalletFactory";
 
 export class WalletManager {
-  async createWallet(chain: "EVM" | "SOLANA"): Promise<IWallet> {
+  async createWallet(
+    chain: "EVM" | "SOLANA",
+    userId: string
+  ): Promise<IWallet> {
     const wallet = WalletFactory.createWallet(chain);
 
     // Save to database
     await WalletModel.create({
+      userId,
       address: wallet.address,
       chain,
       privateKey: wallet.privateKey,
@@ -29,8 +33,8 @@ export class WalletManager {
     return wallet;
   }
 
-  async getAllWallets(): Promise<IWallet[]> {
-    const walletDocs = await WalletModel.find();
+  async getAllWallets(userId: string): Promise<IWallet[]> {
+    const walletDocs = await WalletModel.find({ userId });
 
     return walletDocs.map((doc) => {
       const wallet = WalletFactory.createWallet(doc.chain);

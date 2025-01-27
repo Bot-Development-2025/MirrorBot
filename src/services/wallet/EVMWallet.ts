@@ -1,10 +1,12 @@
+import { BaseWallet, JsonRpcProvider, ethers } from "ethers";
+
 import { IWallet, SwapParams } from "@/core/interfaces/IWallet";
+import { ChainId } from "@uniswap/sdk-core";
+
 import { config } from "../../config/config";
-import { ethers, JsonRpcProvider, BaseWallet } from "ethers";
+import { tokens } from "../../constants/tokens";
 import { Logger } from "../../utils/logger";
 import { UniswapV3Provider } from "../dex/UniswapV3Provider";
-import { ChainId } from "@uniswap/sdk-core";
-import { tokens } from "../../constants/tokens";
 
 export class EVMWallet implements IWallet {
   public address: string;
@@ -66,6 +68,16 @@ export class EVMWallet implements IWallet {
     } catch (error) {
       Logger.error(`Failed to get balance: ${error}`);
       return 0n;
+    }
+  }
+
+  async getNativeBalance(): Promise<number> {
+    try {
+      const balance = await this.provider.getBalance(this.address);
+      return Number(ethers.formatEther(balance));
+    } catch (error) {
+      Logger.error(`Failed to get balance: ${error}`);
+      return 0;
     }
   }
 

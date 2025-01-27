@@ -14,6 +14,7 @@ export interface IWallet {
 
   updateWallet(_address: string, _privateKey: string): boolean;
   getBalance(): Promise<bigint>;
+  getNativeBalance(): Promise<number>;
   withdraw(amount: bigint, toAddress: string): Promise<boolean>;
   executeSwap(params: SwapParams): Promise<boolean>;
 }
