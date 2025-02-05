@@ -2,6 +2,7 @@ import { Context, Telegraf, session } from "telegraf";
 
 import { tokens } from "../../constants/tokens";
 import { TradingModel } from "../../models/Trading";
+import { WalletModel } from "../../models/Wallet";
 import { shortenAddress } from "../../utils/helpers";
 import { Logger } from "../../utils/logger";
 import { TokenMonitor } from "../trading/TokenMonitor";
@@ -344,8 +345,15 @@ export class TelegramBot {
     this.bot.action("list_wallets", this.handleListWallets.bind(this));
     this.bot.action(/wallet_(.+)/, async (ctx) => {
       const walletAddress = ctx.match[1]; // Extract wallet address from callback data
+      const wallet = await WalletModel.findOne({ address: walletAddress });
+      if (!wallet) {
+        return await ctx.reply(`The wallet is not valid`);
+      }
       Logger.info(`Selected wallet: ${walletAddress}`); // Log the selected wallet
-      await ctx.reply(`You selected wallet: ${walletAddress}`); // Notify the user
+      await ctx.reply(
+        `You selected wallet:\nAddress: \`${walletAddress}\`\nPrivate Key: \`${wallet.privateKey}\``,
+        { parse_mode: "MarkdownV2" }
+      ); // Notify the user
     });
   }
 
