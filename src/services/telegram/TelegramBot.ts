@@ -29,6 +29,7 @@ export class TelegramBot {
       walletAddress?: string;
       tokenAddress?: string;
       percentage?: string;
+      maxCap?: number;
     }
   > = new Map();
 
@@ -155,97 +156,32 @@ export class TelegramBot {
           );
           return;
         }
-        // Ensure walletAddress is defined
-        const walletAddress = context.walletAddress;
-        if (!walletAddress) {
-          await msgCtx.reply("Wallet address is not defined.");
-          return;
-        }
 
-        // Setup trading strategy for this wallet
-        const wallet = await this.walletManager.getWallet(walletAddress);
-        if (!wallet) {
-          await msgCtx.reply("Wallet not found.");
-          return;
-        }
-
-        // Ensure tokenAddress is defined
-        const tokenAddress = context.tokenAddress;
-        if (!tokenAddress) {
-          await msgCtx.reply("Token address is not defined.");
-          return;
-        }
-
-        let monitor = this.tokenMonitors.get(tokenAddress);
-        if (!monitor) {
-          monitor = new TokenMonitor(
-            tokenAddress,
-            wallet.chain as "EVM" | "SOLANA"
-          );
-          this.tokenMonitors.set(tokenAddress, monitor);
-          await monitor.startMonitoring();
-        }
-
-        const percentage = Number(context.percentage ?? 0);
-        if (!percentage || isNaN(percentage)) {
-          await msgCtx.reply("Percentage is not defined");
-        }
-
-        monitor.addTradeStrategy({
-          tokenAddress,
-          percentage,
-          maxCap,
-          walletAddress: wallet.address,
-          calculateTradeAmount: (amount: bigint) =>
-            (amount * BigInt(percentage)) / 100n,
-          shouldTrade: (tx: any) => true, // Implement proper logic
-          executeTrade: async (
-            amount: bigint,
-            tokenIn: string,
-            tokenOut: string
-          ) => {
-            if (wallet.chain === "SOLANA") {
-              // tokenOut = "So11111111111111111111111111111111111111112";
-              if (
-                tokenIn === tokens["SOL"].address ||
-                amount > maxCap * 10 ** 9
-              ) {
-                return false;
-              }
-            } else if (wallet.chain === "EVM") {
-              // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-              if (
-                tokenIn === tokens["WETH"].address ||
-                amount > maxCap * 10 ** 18
-              ) {
-                return false;
-              }
-            } else {
-              throw new Error("Unsupported wallet type");
-            }
-
-            return wallet.executeSwap({
-              tokenIn,
-              tokenOut,
-              amount,
-            });
-          },
-        });
-
-        await TradingModel.create({
-          walletAddress: wallet.address,
-          tokenAddress,
-          maxCap,
-          percentage,
-          chain: wallet.chain,
-        });
+        context.maxCap = maxCap;
 
         await msgCtx.reply(
-          `✅ Trading setup complete for token ${tokenAddress} with percentage ${percentage}% and maxCap ${maxCap}${wallet.chain === "SOLANA" ? "SOL" : "ETH"}`
+          `You entered: ${context.maxCap}\nPlease specify whether the trading strategy is buy-only, sell-only, or both.`,
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "Buy only",
+                    callback_data: `new_trading_strategy_buy_only`,
+                  },
+                  {
+                    text: "Sell only",
+                    callback_data: `new_trading_strategy_sell_only`,
+                  },
+                  {
+                    text: "Both",
+                    callback_data: `new_trading_strategy_both`,
+                  },
+                ],
+              ],
+            },
+          }
         );
-
-        // Clear the context after completion
-        this.currentContext.delete(userId);
       }
     });
 
@@ -261,7 +197,7 @@ export class TelegramBot {
 
       const { walletAddress, tokenAddress } = trading;
       await ctx.reply(
-        `Managing trading for:\nWallet: ${walletAddress}\nToken: ${tokenAddress}\nPercentage: ${trading.percentage}%\n\nChoose an action:`,
+        `Managing trading for:\nWallet: ${walletAddress}\nToken: ${tokenAddress}\nPercentage: ${trading.percentage}%\nStrategy: ${trading.tradingStrategy}\n\nChoose an action:`,
         {
           reply_markup: {
             inline_keyboard: [
@@ -274,9 +210,15 @@ export class TelegramBot {
                   text: "Change Percentage",
                   callback_data: `change_percentage_${tradingId}`,
                 },
+              ],
+              [
                 {
                   text: "Change Maximum Cap",
                   callback_data: `change_max_cap_${tradingId}`,
+                },
+                {
+                  text: "Change Trading Strategy",
+                  callback_data: `change_trading_strategy_${tradingId}`,
                 },
               ],
               [
@@ -290,6 +232,7 @@ export class TelegramBot {
         }
       );
     });
+
     this.bot.action(/stop_trading_(.+)/, async (ctx) => {
       const tradingId = ctx.match[1];
       const trading = await TradingModel.findById(tradingId);
@@ -311,6 +254,7 @@ export class TelegramBot {
         await ctx.reply("No active trading found for this token.");
       }
     });
+
     this.bot.action(/change_percentage_(.+)/, async (ctx) => {
       const tradingId = ctx.match[1];
       const trading = await TradingModel.findById(tradingId);
@@ -326,6 +270,177 @@ export class TelegramBot {
       ctx.session.tokenAddress = tokenAddress;
       await ctx.reply(`Please send the new percentage for ${tokenAddress}:`);
     });
+
+    this.bot.action(/new_trading_strategy_(.+)/, async (ctx) => {
+      const tradingStrategy = ctx.match[1];
+      const userId = ctx.from.id.toString();
+      const context = this.currentContext.get(userId);
+      if (!context) return;
+      if (
+        tradingStrategy !== "buy_only" &&
+        tradingStrategy !== "sell_only" &&
+        tradingStrategy !== "both"
+      ) {
+        await ctx.reply("Invalid trading strategy.");
+        return;
+      }
+      // Ensure walletAddress is defined
+      const walletAddress = context.walletAddress;
+      if (!walletAddress) {
+        await ctx.reply("Wallet address is not defined.");
+        return;
+      }
+
+      // Setup trading strategy for this wallet
+      const wallet = await this.walletManager.getWallet(walletAddress);
+      if (!wallet) {
+        await ctx.reply("Wallet not found.");
+        return;
+      }
+
+      // Ensure tokenAddress is defined
+      const tokenAddress = context.tokenAddress;
+      if (!tokenAddress) {
+        await ctx.reply("Token address is not defined.");
+        return;
+      }
+
+      let monitor = this.tokenMonitors.get(tokenAddress);
+      if (!monitor) {
+        monitor = new TokenMonitor(
+          tokenAddress,
+          wallet.chain as "EVM" | "SOLANA"
+        );
+        this.tokenMonitors.set(tokenAddress, monitor);
+        await monitor.startMonitoring();
+      }
+
+      const percentage = Number(context.percentage ?? 0);
+      if (!percentage || isNaN(percentage)) {
+        await ctx.reply("Percentage is not defined");
+      }
+
+      const maxCap = context.maxCap ?? 0;
+
+      monitor.addTradeStrategy({
+        tokenAddress,
+        percentage,
+        maxCap,
+        tradingStrategy,
+        walletAddress: wallet.address,
+        calculateTradeAmount: (amount: bigint) =>
+          (amount * BigInt(percentage)) / 100n,
+        shouldTrade: (tx: any) => true, // Implement proper logic
+        executeTrade: async (
+          amount: bigint,
+          tokenIn: string,
+          tokenOut: string
+        ) => {
+          if (wallet.chain === "SOLANA") {
+            // tokenOut = "So11111111111111111111111111111111111111112";
+            if (
+              tokenIn === tokens["SOL"].address ||
+              amount > maxCap * 10 ** 9
+            ) {
+              return false;
+            }
+          } else if (wallet.chain === "EVM") {
+            // tokenOut = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+            if (
+              tokenIn === tokens["WETH"].address ||
+              amount > maxCap * 10 ** 18
+            ) {
+              return false;
+            }
+          } else {
+            throw new Error("Unsupported wallet type");
+          }
+
+          return wallet.executeSwap({
+            tokenIn,
+            tokenOut,
+            amount,
+          });
+        },
+      });
+
+      await TradingModel.create({
+        walletAddress: wallet.address,
+        tokenAddress,
+        maxCap,
+        percentage,
+        tradingStrategy,
+        chain: wallet.chain,
+      });
+
+      await ctx.reply(
+        `✅ Trading setup complete for token ${tokenAddress} with percentage ${percentage}% and maxCap ${maxCap}${wallet.chain === "SOLANA" ? "SOL" : "ETH"}`
+      );
+
+      // Clear the context after completion
+      this.currentContext.delete(userId);
+    });
+
+    this.bot.action(/change_trading_strategy_(.+)/, async (ctx) => {
+      const tradingId = ctx.match[1];
+      const trading = await TradingModel.findById(tradingId);
+
+      if (!trading) {
+        await ctx.reply("Trading strategy not found.");
+        return;
+      }
+
+      const { tokenAddress, walletAddress } = trading;
+      ctx.session.step = "change_trading_strategy";
+      ctx.session.walletAddress = walletAddress;
+      ctx.session.tokenAddress = tokenAddress;
+      await ctx.reply(`Please send the trading strategy for ${tokenAddress}:`, {
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "Buy only",
+                callback_data: `change_ts_buy_only_${tradingId}`,
+              },
+              {
+                text: "Sell only",
+                callback_data: `change_ts_sell_only_${tradingId}`,
+              },
+              {
+                text: "Both",
+                callback_data: `change_ts_both_${tradingId}`,
+              },
+            ],
+          ],
+        },
+      });
+    });
+
+    this.bot.action(/change_ts_(buy_only|sell_only|both)_(.+)/, async (ctx) => {
+      const tradingStrategy = ctx.match[1]; // Extracts "buy_only", "sell_only", or "both"
+      const tradingId = ctx.match[2]; // Extracts tradingId
+      if (
+        tradingStrategy !== "buy_only" &&
+        tradingStrategy !== "sell_only" &&
+        tradingStrategy !== "both"
+      ) {
+        await ctx.reply("Invalid trading strategy.");
+        return;
+      }
+
+      const trading = await TradingModel.findById(tradingId);
+      if (!trading) {
+        await ctx.reply("Trading strategy not found.");
+        return;
+      }
+      // Update the percentage in the database
+      trading.tradingStrategy = tradingStrategy;
+      await trading.save();
+      await ctx.reply(
+        `✅ Trading strategy updated to ${tradingStrategy} for token ${trading.tokenAddress}`
+      );
+    });
+
     this.bot.action(/change_max_cap_(.+)/, async (ctx) => {
       const tradingId = ctx.match[1];
       const trading = await TradingModel.findById(tradingId);
@@ -522,7 +637,7 @@ export class TelegramBot {
         const statusIcon = isActive ? "✅" : "❌"; // Use icons based on the active status
 
         return {
-          text: `${statusIcon} ${shortenAddress(trading.walletAddress)} - ${shortenAddress(trading.tokenAddress)} (${trading.percentage}% - ${trading.maxCap}${trading.chain === "SOLANA" ? "SOL" : "ETH"})`,
+          text: `${statusIcon} ${shortenAddress(trading.walletAddress)} - ${shortenAddress(trading.tokenAddress)} (${trading.percentage}% - ${trading.maxCap}${trading.chain === "SOLANA" ? "SOL" : "ETH"} - ${trading.tradingStrategy === "both" ? "BUY / SELL" : trading.tradingStrategy === "buy_only" ? "BUY ONLY" : "SELL ONLY"})`,
           callback_data: `manage_trading_${trading.id}`, // Unique callback data
         };
       });
@@ -625,6 +740,7 @@ export class TelegramBot {
               maxCap: trading.maxCap,
               percentage: trading.percentage,
               walletAddress: trading.walletAddress,
+              tradingStrategy: trading.tradingStrategy,
               calculateTradeAmount: (amount: bigint) =>
                 (amount * BigInt(trading.percentage)) / 100n,
               shouldTrade: (tx: any) => true, // Implement proper logic
@@ -675,6 +791,9 @@ export class TelegramBot {
     // Initialize stored trading monitors before launching the bot
     await this.initializeStoredTradingMonitors();
 
+    this.bot.catch((err) => {
+      console.error(err);
+    });
     this.bot.launch();
     Logger.info("Telegram bot started");
 

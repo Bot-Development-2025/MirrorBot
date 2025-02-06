@@ -1,10 +1,12 @@
+import Bottleneck from "bottleneck";
+
 import { ITokenMonitor } from "@/core/interfaces/ITokenMonitor";
 import { ITradeStrategy } from "@/core/interfaces/ITradeStrategy";
+
+import { tokens } from "../../constants/tokens";
+import { Logger } from "../../utils/logger";
 import { EVMService } from "../blockchain/EVMService";
 import { SolanaService } from "../blockchain/SolanaService";
-import { Logger } from "../../utils/logger";
-import { tokens } from "../../constants/tokens";
-import Bottleneck from "bottleneck";
 
 export class TokenMonitor implements ITokenMonitor {
   public strategies: Map<string, ITradeStrategy> = new Map();
@@ -61,25 +63,33 @@ export class TokenMonitor implements ITokenMonitor {
 
     for (const strategy of this.strategies.values()) {
       if (strategy.shouldTrade(transaction)) {
-        const amount = strategy.calculateTradeAmount(transaction.amount);
-        let tokenIn = transaction.tokenIn;
-        let tokenOut = transaction.tokenOut;
-        if (this.chain === "SOLANA") {
-          if (transaction.type === "SELL") {
-            tokenIn = this.tokenAddress;
-            tokenOut = tokens["SOL"].address;
-          } else {
-            tokenIn = tokens["SOL"].address;
-            tokenOut = this.tokenAddress;
+        if (
+          (strategy.tradingStrategy === "buy_only" &&
+            transaction.type === "BUY") ||
+          (strategy.tradingStrategy === "sell_only" &&
+            transaction.type === "SELL") ||
+          strategy.tradingStrategy === "both"
+        ) {
+          const amount = strategy.calculateTradeAmount(transaction.amount);
+          let tokenIn = transaction.tokenIn;
+          let tokenOut = transaction.tokenOut;
+          if (this.chain === "SOLANA") {
+            if (transaction.type === "SELL") {
+              tokenIn = this.tokenAddress;
+              tokenOut = tokens["SOL"].address;
+            } else {
+              tokenIn = tokens["SOL"].address;
+              tokenOut = this.tokenAddress;
+            }
           }
+          await this.tradeLimiter.schedule(async () => {
+            try {
+              await strategy.executeTrade(amount, tokenIn, tokenOut);
+            } catch (error) {
+              Logger.error(`Trade execution failed: ${error}`);
+            }
+          });
         }
-        await this.tradeLimiter.schedule(async () => {
-          try {
-            await strategy.executeTrade(amount, tokenIn, tokenOut);
-          } catch (error) {
-            Logger.error(`Trade execution failed: ${error}`);
-          }
-        });
       }
     }
   }

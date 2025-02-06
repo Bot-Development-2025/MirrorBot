@@ -70,6 +70,7 @@ export class EVMService {
           amount,
           tokenIn,
           tokenOut,
+          type: tokenIn === tokens["WETH"] ? "BUY" : "SELL",
         };
         await this.tradeLimiter.schedule(() => callback(transaction));
       } catch (error) {

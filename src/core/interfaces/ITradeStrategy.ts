@@ -2,6 +2,7 @@ export interface ITradeStrategy {
   tokenAddress: string;
   percentage: number;
   maxCap: number;
+  tradingStrategy: "buy_only" | "sell_only" | "both";
   walletAddress: string;
 
   calculateTradeAmount(detectedAmount: bigint): bigint;
